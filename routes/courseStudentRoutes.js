@@ -63,7 +63,13 @@ const MANUAL_CERTIFICATE_REGISTRY = {
   // Latest batch - Video Editing
   'BMAJUNDMMES/Q0506S318': { name: 'Shangavi S M', courseName: 'Video Editing', courseSlug: 'video-editing' },
   'BMAJUNDMMES/Q0506S319': { name: 'Meghaa S', courseName: 'Video Editing', courseSlug: 'video-editing' },
-  'BMAJUNDMMES/Q0506S320': { name: 'Sabari A', courseName: 'Video Editing', courseSlug: 'video-editing' }
+  'BMAJUNDMMES/Q0506S320': { name: 'Sabari A', courseName: 'Video Editing', courseSlug: 'video-editing' },
+  // Additional batch students
+  'BMASEPDMMES/Q0506S053': { name: 'S.Yuvasankari', courseName: 'Digital Marketing', courseSlug: 'digital-marketing' },
+  'BMASEPVEMES/Q1401S043': { name: 'Anderson', courseName: 'Advanced Video Editing (AI-Integrated)', courseSlug: 'video-editing' },
+  'BMASEPDMMES/Q0506S054': { name: 'C.KAJAYROSAN', courseName: 'Digital Marketing', courseSlug: 'digital-marketing' },
+  'BMASEPDMMES/Q0506S055': { name: 'Pitchu alias Preethi .G', courseName: 'Digital Marketing', courseSlug: 'digital-marketing' },
+  'BMASEPVEMES/Q1401S044': { name: 'Dhavalashree', courseName: 'Advanced Video Editing (AI-Integrated)', courseSlug: 'video-editing' }
 };
 
 const findCourseStudentForCertificate = async (rawId, decodedId) => {
