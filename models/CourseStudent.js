@@ -56,6 +56,12 @@ const courseStudentSchema = mongoose.Schema({
     type: Date,
     default: Date.now,
     index: true
+  },
+  // Added from the admin Certificate Generator "Add Student" button
+  addedManually: {
+    type: Boolean,
+    default: false,
+    index: true
   }
 }, {
   timestamps: true

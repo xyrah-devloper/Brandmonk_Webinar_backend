@@ -72,6 +72,52 @@ const MANUAL_CERTIFICATE_REGISTRY = {
   'BMASEPVEMES/Q1401S044': { name: 'Dhavalashree', courseName: 'Advanced Video Editing (AI-Integrated)', courseSlug: 'video-editing' }
 };
 
+// Batch certificate prefixes per course. The first prefix is the default for new batches.
+const COURSE_BATCHES = {
+  'digital-marketing': {
+    courseName: 'Digital Marketing',
+    prefixes: ['BMAJUNDMMES/Q0506S', 'BMASEPDMMES/Q0506S']
+  },
+  'video-editing': {
+    courseName: 'Advanced Video Editing (AI-Integrated)',
+    prefixes: ['BMAJUNVEMES/Q1401S', 'BMASEPVEMES/Q1401S']
+  },
+  'ui-ux': {
+    courseName: 'UI/UX Design',
+    prefixes: ['BMAJUNUIMES/Q0306S']
+  },
+  'data-analytics': {
+    courseName: 'Data Analytics',
+    prefixes: ['BMAJUNDAMES/Q0906S']
+  },
+  'artificial-intelligence': {
+    courseName: 'Artificial Intelligence',
+    prefixes: ['BMAJUNAIMES/Q0806S']
+  }
+};
+
+const normalizeStudentName = (name) =>
+  name.trim().toUpperCase().replace(/\s+/g, ' ').replace(/\./g, '').replace(/,/g, '');
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Next free number for a prefix. Counts the database and the hardcoded registry,
+// so a new ID never reuses a number that a manual certificate already holds.
+const nextCertificateNumber = async (prefix) => {
+  const existing = await CourseStudent.find(
+    { certificateId: { $regex: `^${escapeRegex(prefix)}` } },
+    { certificateId: 1 }
+  ).lean();
+
+  const ids = [...existing.map(s => s.certificateId), ...Object.keys(MANUAL_CERTIFICATE_REGISTRY)];
+  let max = 0;
+  ids.forEach(id => {
+    const match = typeof id === 'string' && id.match(new RegExp(`^${escapeRegex(prefix)}(\\d+)$`));
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  });
+  return max + 1;
+};
+
 const findCourseStudentForCertificate = async (rawId, decodedId) => {
   // Some filenames/URLs use underscores instead of slashes (e.g. BMAJUNDMMES_Q0506S306)
   const normalizedRawId = rawId ? rawId.replace(/_/g, '/') : rawId;
@@ -266,6 +312,7 @@ router.get('/course/:slug', async (req, res) => {
         certificateId: s.certificateId,
         isEligible: s.isEligible,
         certificateSent: s.certificateSent,
+        addedManually: s.addedManually,
         dateOfRegistration: s.dateOfRegistration,
         createdAt: s.createdAt
       }))
@@ -277,6 +324,28 @@ router.get('/course/:slug', async (req, res) => {
       message: 'Failed to fetch course students',
       students: []
     });
+  }
+});
+
+// @desc    List course batch options (courses, certificate prefixes, manual student counts)
+// @route   GET /api/course-students/batch-options
+// @access  Private (Admin only)
+// Declared before /:id so "batch-options" is not treated as a student ID
+router.get('/batch-options', async (req, res) => {
+  try {
+    const courses = await Promise.all(
+      Object.entries(COURSE_BATCHES).map(async ([slug, config]) => ({
+        slug,
+        courseName: config.courseName,
+        prefixes: config.prefixes,
+        manualCount: await CourseStudent.countDocuments({ courseSlug: slug, addedManually: true })
+      }))
+    );
+
+    res.json({ success: true, courses });
+  } catch (error) {
+    console.error("GetBatchOptions Error:", error);
+    res.status(500).json({ success: false, message: 'Failed to load batch options' });
   }
 });
 
@@ -341,51 +410,77 @@ router.get('/:idPrefix/:idSuffix', async (req, res) => {
   }
 });
 
-// @desc    Add a course student
+// @desc    Add a student to a course batch with the next certificate ID for that batch
 // @route   POST /api/course-students
 // @access  Private (Admin only)
+// Body: { name, courseSlug, certificatePrefix, email?, phoneNumber? }
 router.post('/', async (req, res) => {
-  const { name, courseName, courseSlug } = req.body;
+  const { name, courseSlug, certificatePrefix, email, phoneNumber } = req.body;
 
-  if (!name || !courseName || !courseSlug) {
+  if (!name || !courseSlug || !certificatePrefix) {
     return res.status(400).json({
       success: false,
-      message: 'Name, courseName, and courseSlug are required'
+      message: 'Name, courseSlug and certificatePrefix are required'
     });
   }
 
+  const config = COURSE_BATCHES[courseSlug];
+  if (!config) {
+    return res.status(400).json({ success: false, message: 'Unknown course' });
+  }
+
+  if (!config.prefixes.includes(certificatePrefix)) {
+    return res.status(400).json({
+      success: false,
+      message: `Batch prefix must be one of: ${config.prefixes.join(', ')}`
+    });
+  }
+
+  const cleanName = name.trim().replace(/\s+/g, ' ');
+
   try {
-    // Generate certificate ID
-    const prefixMap = {
-      'video-editing': 'BMAVE',
-      'digital-marketing': 'BMADM',
-      'web-development': 'BMAWD',
-      'graphic-design': 'BMAGD',
-      'social-media': 'BMASMS',
-      'data-analytics': 'BMADA',
-      'artificial-intelligence': 'BMAAI',
-      'ui-ux': 'BMAUI'
-    };
-    const count = await CourseStudent.countDocuments({ courseSlug });
-    const prefix = prefixMap[courseSlug] || 'BMA' + courseSlug.substring(0, 3).toUpperCase();
-    const certificateId = `${prefix}${(count + 1).toString().padStart(4, '0')}`;
+    const sameCourse = await CourseStudent.find({ courseSlug }, { name: 1 }).lean();
+    const normalized = normalizeStudentName(cleanName);
+    if (sameCourse.some(s => normalizeStudentName(s.name) === normalized)) {
+      return res.status(409).json({
+        success: false,
+        message: `${cleanName} is already in ${config.courseName}`
+      });
+    }
 
-    const student = new CourseStudent({
-      name: name.trim(),
-      courseName: courseName.trim(),
-      courseSlug: courseSlug.trim(),
-      certificateId,
-      isEligible: true,
-      dateOfRegistration: new Date()
-    });
+    let number = await nextCertificateNumber(certificatePrefix);
 
-    const savedStudent = await student.save();
+    // Retry with the next number if another request took it first
+    for (let attempt = 0; attempt < 5; attempt++, number++) {
+      const certificateId = `${certificatePrefix}${number.toString().padStart(3, '0')}`;
+      if (MANUAL_CERTIFICATE_REGISTRY[certificateId]) continue;
+      if (await CourseStudent.exists({ certificateId })) continue;
 
-    res.status(201).json({
-      success: true,
-      message: 'Course student added successfully!',
-      student: savedStudent
-    });
+      try {
+        const savedStudent = await new CourseStudent({
+          name: cleanName,
+          courseName: config.courseName,
+          courseSlug,
+          certificateId,
+          email: email ? email.trim() : null,
+          phoneNumber: phoneNumber ? phoneNumber.trim() : null,
+          isEligible: true,
+          certificateSent: false,
+          addedManually: true,
+          dateOfRegistration: new Date()
+        }).save();
+
+        return res.status(201).json({
+          success: true,
+          message: `Added ${cleanName} with certificate ID ${certificateId}`,
+          student: savedStudent
+        });
+      } catch (error) {
+        if (error.code !== 11000) throw error;
+      }
+    }
+
+    res.status(409).json({ success: false, message: 'Could not reserve a certificate ID, please retry' });
   } catch (error) {
     console.error("CreateCourseStudent Error:", error);
     res.status(500).json({
