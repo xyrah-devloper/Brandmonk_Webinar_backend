@@ -429,10 +429,11 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Unknown course' });
   }
 
-  if (!config.prefixes.includes(certificatePrefix)) {
+  const cleanPrefix = String(certificatePrefix).trim().toUpperCase();
+  if (!/^[A-Z0-9]+(?:\/[A-Z0-9]+)*$/.test(cleanPrefix) || /\d$/.test(cleanPrefix)) {
     return res.status(400).json({
       success: false,
-      message: `Batch prefix must be one of: ${config.prefixes.join(', ')}`
+      message: 'Enter a valid batch prefix (letters, numbers and slashes, ending with a letter — e.g. BMAJUNDMMES/Q0506S)'
     });
   }
 
@@ -448,11 +449,11 @@ router.post('/', async (req, res) => {
       });
     }
 
-    let number = await nextCertificateNumber(certificatePrefix);
+    let number = await nextCertificateNumber(cleanPrefix);
 
     // Retry with the next number if another request took it first
     for (let attempt = 0; attempt < 5; attempt++, number++) {
-      const certificateId = `${certificatePrefix}${number.toString().padStart(3, '0')}`;
+      const certificateId = `${cleanPrefix}${number.toString().padStart(3, '0')}`;
       if (MANUAL_CERTIFICATE_REGISTRY[certificateId]) continue;
       if (await CourseStudent.exists({ certificateId })) continue;
 
